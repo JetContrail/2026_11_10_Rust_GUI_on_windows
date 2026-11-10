@@ -1,9 +1,9 @@
-//! `paint-tools` crate. See `docs/Architecture.md`.
+//! Tool logic: converts GUI-independent pointer input into draw operations
+//! and selections. The UI layer feeds canvas-space pointer events into a
+//! [`ToolController`] and applies the returned [`ToolEvent`]s.
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn crate_builds() {
-        assert_eq!(env!("CARGO_PKG_NAME"), "paint-tools");
-    }
-}
+mod controller;
+mod settings;
+
+pub use controller::{ToolController, ToolEvent};
+pub use settings::{ToolKind, ToolSettings};
