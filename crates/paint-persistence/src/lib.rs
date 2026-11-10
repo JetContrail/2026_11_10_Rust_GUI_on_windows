@@ -1,9 +1,14 @@
-//! `paint-persistence` crate. See `docs/Architecture.md`.
+//! Persistence adapters implementing the ports of `paint_domain::ports`.
+//!
+//! - [`FileImageImporter`]: PNG / JPEG / BMP decoding for the underlay
+//! - [`PngExporter`]: PNG writing with alpha channel (transparent PNG)
+//! - [`JsonProjectStore`]: `.paint` project files (see `docs/FileFormat.md`)
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn crate_builds() {
-        assert_eq!(env!("CARGO_PKG_NAME"), "paint-persistence");
-    }
-}
+mod atomic;
+mod image_io;
+mod project;
+
+pub use image_io::{FileImageImporter, PngExporter, decode_image, encode_png};
+pub use project::{
+    FORMAT_ID, FORMAT_VERSION, JsonProjectStore, PROJECT_EXTENSION, decode_project, encode_project,
+};
