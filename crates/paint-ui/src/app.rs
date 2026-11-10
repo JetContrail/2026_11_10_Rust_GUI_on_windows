@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use eframe::egui::{self, Color32, Key, KeyboardShortcut, Modifiers};
 use paint_app::{ExportMode, PaintViewModel};
 use paint_domain::{Color, PALETTE, StrokeWidth};
@@ -49,7 +50,7 @@ impl PaintApp {
             vm,
             dialogs,
             canvas: CanvasView::new(),
-            message: "準備完了".to_owned(),
+            message: tr().ready.to_owned(),
             title: String::new(),
             confirm: None,
             allow_close: false,
@@ -165,13 +166,13 @@ impl PaintApp {
         };
         let mut choice = None;
         let modal = egui::Modal::new(egui::Id::unique("unsaved-changes")).show(ctx, |ui| {
-            ui.heading("未保存の変更があります");
-            ui.label("変更を保存しますか?");
+            ui.heading(tr().unsaved_title);
+            ui.label(tr().unsaved_question);
             ui.horizontal(|ui| {
                 for (label, c) in [
-                    ("保存", Choice::Save),
-                    ("保存しない", Choice::Discard),
-                    ("キャンセル", Choice::Cancel),
+                    (tr().save, Choice::Save),
+                    (tr().dont_save, Choice::Discard),
+                    (tr().cancel, Choice::Cancel),
                 ] {
                     if ui.button(label).clicked() {
                         choice = Some(c);
@@ -213,7 +214,10 @@ impl PaintApp {
             .vm
             .project_path()
             .and_then(|p| p.file_name())
-            .map_or_else(|| "無題".to_owned(), |n| n.to_string_lossy().into_owned());
+            .map_or_else(
+                || tr().untitled.to_owned(),
+                |n| n.to_string_lossy().into_owned(),
+            );
         let mark = if self.vm.is_modified() { " *" } else { "" };
         let title = format!("{name}{mark} - {APP_TITLE}");
         if title != self.title {
@@ -224,51 +228,51 @@ impl PaintApp {
 
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
         egui::MenuBar::new().ui(ui, |ui| {
-            ui.menu_button("ファイル", |ui| {
-                if ui.button("画像を開く… (Ctrl+O)").clicked() {
+            ui.menu_button(tr().menu_file, |ui| {
+                if ui.button(tr().open_image).clicked() {
                     self.open_image();
                 }
-                if ui.button("プロジェクトを開く…").clicked() {
+                if ui.button(tr().open_project).clicked() {
                     self.open_project();
                 }
                 ui.separator();
-                if ui.button("保存 (Ctrl+S)").clicked() {
+                if ui.button(tr().save_shortcut).clicked() {
                     self.save();
                 }
-                if ui.button("名前を付けて保存…").clicked() {
+                if ui.button(tr().save_as).clicked() {
                     self.save_as();
                 }
                 ui.separator();
-                if ui.button("PNG 書き出し (表示中レイヤー)…").clicked() {
+                if ui.button(tr().export_png).clicked() {
                     self.export(ExportMode::VisibleLayers);
                 }
-                if ui.button("透過 PNG 書き出し (描画レイヤーのみ)…").clicked() {
+                if ui.button(tr().export_transparent_png).clicked() {
                     self.export(ExportMode::DrawingOnly);
                 }
                 ui.separator();
-                if ui.button("終了").clicked() {
+                if ui.button(tr().exit).clicked() {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             });
-            ui.menu_button("編集", |ui| {
+            ui.menu_button(tr().menu_edit, |ui| {
                 if ui
-                    .add_enabled(self.vm.can_undo(), egui::Button::new("元に戻す (Ctrl+Z)"))
+                    .add_enabled(self.vm.can_undo(), egui::Button::new(tr().undo_shortcut))
                     .clicked()
                 {
                     self.undo();
                 }
                 if ui
-                    .add_enabled(self.vm.can_redo(), egui::Button::new("やり直し (Ctrl+Y)"))
+                    .add_enabled(self.vm.can_redo(), egui::Button::new(tr().redo_shortcut))
                     .clicked()
                 {
                     self.redo();
                 }
-                if ui.button("選択範囲を削除 (Delete)").clicked() {
+                if ui.button(tr().delete_selection).clicked() {
                     self.delete_selection();
                 }
             });
-            ui.menu_button("表示", |ui| {
-                for (label, zoom) in [("拡大", 2.0), ("縮小", 0.5)] {
+            ui.menu_button(tr().menu_view, |ui| {
+                for (label, zoom) in [(tr().zoom_in, 2.0), (tr().zoom_out, 0.5)] {
                     if ui.button(label).clicked() {
                         self.canvas.set_zoom(self.canvas.zoom() * zoom);
                     }
@@ -281,7 +285,7 @@ impl PaintApp {
     }
 
     fn tool_palette(&mut self, ui: &mut egui::Ui) {
-        ui.heading("ツール");
+        ui.heading(tr().tools);
         for tool in ToolKind::ALL {
             if ui
                 .selectable_label(self.vm.tool() == tool, tool_name(tool))
@@ -298,17 +302,17 @@ impl PaintApp {
         }
         let settings = self.vm.tool_settings();
         ui.separator();
-        ui.label("線幅");
+        ui.label(tr().pen_width);
         width_selector(ui, "pen_width", settings.pen_width, |w| {
             self.vm.set_pen_width(w)
         });
-        ui.label("消しゴムサイズ");
+        ui.label(tr().eraser_size);
         width_selector(ui, "eraser_width", settings.eraser_width, |w| {
             self.vm.set_eraser_width(w);
         });
 
         ui.separator();
-        ui.label("色");
+        ui.label(tr().color);
         let mut rgb = [settings.color.r, settings.color.g, settings.color.b];
         if ui.color_edit_button_srgb(&mut rgb).changed() {
             self.vm.set_color(Color::rgb(rgb[0], rgb[1], rgb[2]));
@@ -346,7 +350,7 @@ impl PaintApp {
     }
 
     fn layer_panel(&mut self, ui: &mut egui::Ui) {
-        ui.heading("レイヤー");
+        ui.heading(tr().layers);
         let layers: Vec<_> = self
             .vm
             .document()
@@ -359,15 +363,15 @@ impl PaintApp {
             ui.horizontal(|ui| {
                 if ui
                     .checkbox(&mut visible, "")
-                    .on_hover_text("表示")
+                    .on_hover_text(tr().layer_visible)
                     .changed()
                 {
                     let _ = self.vm.set_layer_visible(id, visible);
                 }
                 let label = if locked {
-                    format!("{name} (編集禁止)")
+                    format!("{name} {}", tr().layer_locked_suffix)
                 } else {
-                    format!("{name} (編集中)")
+                    format!("{name} {}", tr().layer_editing_suffix)
                 };
                 ui.label(label);
             });
@@ -389,8 +393,10 @@ impl PaintApp {
             };
             ui.separator();
             ui.label(format!(
-                "元に戻す {} / やり直し {}",
+                "{} {} / {} {}",
+                tr().undo_count,
                 self.vm.undo_len(),
+                tr().redo_count,
                 self.vm.redo_len()
             ));
             ui.separator();
@@ -403,7 +409,7 @@ impl PaintApp {
     fn open_image(&mut self) {
         if let Some(path) = self.dialogs.open_image() {
             let result = self.vm.import_image(&path);
-            self.report(result, "画像を読み込みました");
+            self.report(result, tr().image_loaded);
         }
     }
 
@@ -418,13 +424,13 @@ impl PaintApp {
     fn open_project_unchecked(&mut self) {
         if let Some(path) = self.dialogs.open_project() {
             let result = self.vm.open_project(&path);
-            self.report(result, "プロジェクトを開きました");
+            self.report(result, tr().project_opened);
         }
     }
 
     fn save(&mut self) {
         match self.vm.save_project() {
-            Ok(true) => self.message = "保存しました".to_owned(),
+            Ok(true) => self.message = tr().saved.to_owned(),
             Ok(false) => self.save_as(),
             Err(e) => self.message = e.to_string(),
         }
@@ -433,30 +439,30 @@ impl PaintApp {
     fn save_as(&mut self) {
         if let Some(path) = self.dialogs.save_project() {
             let result = self.vm.save_project_as(&path);
-            self.report(result, "保存しました");
+            self.report(result, tr().saved);
         }
     }
 
     fn export(&mut self, mode: ExportMode) {
         if let Some(path) = self.dialogs.export_png() {
             let result = self.vm.export_png(&path, mode);
-            self.report(result, "PNG を書き出しました");
+            self.report(result, tr().png_exported);
         }
     }
 
     fn delete_selection(&mut self) {
         let result = self.vm.delete_selection();
-        self.report(result, "選択範囲を削除しました");
+        self.report(result, tr().selection_deleted);
     }
 
     fn undo(&mut self) {
         let result = self.vm.undo();
-        self.report(result.map(drop), "元に戻しました");
+        self.report(result.map(drop), tr().undone);
     }
 
     fn redo(&mut self) {
         let result = self.vm.redo();
-        self.report(result.map(drop), "やり直しました");
+        self.report(result.map(drop), tr().redone);
     }
 
     fn report(&mut self, result: Result<(), paint_app::AppError>, ok: &str) {
@@ -475,11 +481,11 @@ impl eframe::App for PaintApp {
 
 fn tool_name(tool: ToolKind) -> &'static str {
     match tool {
-        ToolKind::Pen => "ペン",
-        ToolKind::Line => "直線",
-        ToolKind::Eraser => "消しゴム",
-        ToolKind::Select => "範囲選択",
-        ToolKind::Text => "テキスト",
+        ToolKind::Pen => tr().tool_pen,
+        ToolKind::Line => tr().tool_line,
+        ToolKind::Eraser => tr().tool_eraser,
+        ToolKind::Select => tr().tool_select,
+        ToolKind::Text => tr().tool_text,
     }
 }
 

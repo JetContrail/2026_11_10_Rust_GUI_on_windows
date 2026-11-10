@@ -36,7 +36,7 @@ graph TD
 | `paint-tools` | マウス入力 (押下/移動/離す + 修飾キー) を `DrawOp` や選択範囲に変換する `Tool` trait と各ツール | なし |
 | `paint-persistence` | port の実装: 画像読込 (PNG/JPEG/BMP)、`.paint` 保存/読込、PNG 書き出し、システムフォント一覧/読込 (`FontSource`) | `image`, `serde`, `serde_json`, `base64`, `fontique` |
 | `paint-app` | `EditorViewModel`: ドキュメント・履歴・ツール・ビューポート (ズーム/スクロール)・選択範囲・ファイル状態を管理し、UI からのコマンドを処理 | なし (port 経由) |
-| `paint-ui` | eframe/egui による画面 (ツールパレット/キャンバス/レイヤーパネル/ステータスバー)、ショートカット、ファイルダイアログ、依存注入 | `eframe`, `egui`, `rfd` |
+| `paint-ui` | eframe/egui による画面 (ツールパレット/キャンバス/レイヤーパネル/ステータスバー)、ショートカット、ファイルダイアログ、依存注入、画面文言 (`i18n.rs` に言語別の文言表として集約。現在は日本語のみ) | `eframe`, `egui`, `rfd` |
 
 ## 3. 主要な型
 

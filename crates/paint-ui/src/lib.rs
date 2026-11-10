@@ -5,6 +5,7 @@ mod app;
 mod canvas;
 mod dialogs;
 mod fonts;
+pub mod i18n;
 mod text_ui;
 
 pub use app::{APP_TITLE, PaintApp};
