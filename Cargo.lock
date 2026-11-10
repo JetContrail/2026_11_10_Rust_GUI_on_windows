@@ -2329,7 +2329,9 @@ version = "0.1.0"
 dependencies = [
  "paint-domain",
  "paint-engine",
+ "paint-persistence",
  "paint-tools",
+ "tempfile",
 ]
 
 [[package]]
