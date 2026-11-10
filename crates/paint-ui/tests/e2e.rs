@@ -1,0 +1,182 @@
+//! E2E test of the whole application through the egui UI (headless, via
+//! `egui_kittest`): launch → draw → save → undo/redo → reload.
+#![allow(clippy::unwrap_used, clippy::expect_used)] // test helpers outside #[test] fns
+
+use std::path::{Path, PathBuf};
+
+use eframe::egui::{Event, Key, Modifiers, PointerButton, Pos2};
+use egui_kittest::Harness;
+use egui_kittest::kittest::Queryable;
+use paint_app::ExportMode;
+use paint_ui::{FileDialogs, PaintApp, default_view_model, install_system_fonts};
+
+#[derive(Debug)]
+struct FakeDialogs {
+    project: PathBuf,
+    png: PathBuf,
+}
+
+impl FileDialogs for FakeDialogs {
+    fn open_image(&self) -> Option<PathBuf> {
+        None
+    }
+    fn open_project(&self) -> Option<PathBuf> {
+        Some(self.project.clone())
+    }
+    fn save_project(&self) -> Option<PathBuf> {
+        Some(self.project.clone())
+    }
+    fn export_png(&self) -> Option<PathBuf> {
+        Some(self.png.clone())
+    }
+}
+
+fn launch(dir: &Path) -> Harness<'static, PaintApp> {
+    let dialogs = FakeDialogs {
+        project: dir.join("e2e.paint"),
+        png: dir.join("e2e.png"),
+    };
+    let app = PaintApp::new(default_view_model(), Box::new(dialogs));
+    let mut harness = Harness::builder()
+        .with_size([1280.0, 800.0])
+        .allow_missing_glyphs()
+        .build_ui_state(|ui, app: &mut PaintApp| app.show(ui), app);
+    let font = install_system_fonts(&harness.ctx);
+    // Windows always ships a Japanese UI font; other CI hosts may draw tofu.
+    if cfg!(windows) {
+        assert!(font.is_some(), "Japanese system font not found");
+    }
+    harness.run();
+    harness
+}
+
+fn screen(h: &Harness<'_, PaintApp>, x: f32, y: f32) -> Pos2 {
+    h.state().canvas_to_screen(x, y).expect("canvas laid out")
+}
+
+fn pointer(h: &mut Harness<'_, PaintApp>, pos: Pos2, pressed: bool) {
+    h.event(Event::PointerButton {
+        pos,
+        button: PointerButton::Primary,
+        pressed,
+        modifiers: Modifiers::NONE,
+    });
+    h.run();
+}
+
+fn stroke(h: &mut Harness<'_, PaintApp>, points: &[(f32, f32)]) {
+    let pts: Vec<Pos2> = points.iter().map(|&(x, y)| screen(h, x, y)).collect();
+    h.event(Event::PointerMoved(pts[0]));
+    h.run();
+    pointer(h, pts[0], true);
+    for &p in &pts[1..] {
+        h.event(Event::PointerMoved(p));
+        h.run();
+    }
+    pointer(h, *pts.last().unwrap(), false);
+}
+
+fn ctrl(h: &mut Harness<'_, PaintApp>, key: Key) {
+    h.key_press_modifiers(Modifiers::COMMAND, key);
+    h.run();
+}
+
+#[test]
+fn launch_draw_save_undo_redo_reload() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = launch(dir.path());
+    // Launch: main window with all panels.
+    for label in ["ツール", "レイヤー", "ファイル", "準備完了"] {
+        h.get_by_label(label);
+    }
+    assert_eq!(h.state().view_model().undo_len(), 0);
+
+    // Draw a freehand stroke and a dot.
+    stroke(&mut h, &[(20.0, 20.0), (60.0, 40.0), (100.0, 20.0)]);
+    stroke(&mut h, &[(200.0, 200.0)]);
+    assert_eq!(h.state().view_model().undo_len(), 2);
+    let drawn = h
+        .state()
+        .view_model()
+        .render_export(ExportMode::DrawingOnly);
+    assert!(drawn.pixel(200, 200).unwrap().a > 0, "dot drawn");
+
+    // Save (Ctrl+S).
+    ctrl(&mut h, Key::S);
+    assert!(dir.path().join("e2e.paint").exists());
+    assert!(!h.state().view_model().is_modified());
+
+    // Undo / Redo (Ctrl+Z / Ctrl+Y).
+    ctrl(&mut h, Key::Z);
+    ctrl(&mut h, Key::Z);
+    assert_eq!(h.state().view_model().undo_len(), 0);
+    assert!(h.state().view_model().is_modified());
+    ctrl(&mut h, Key::Y);
+    ctrl(&mut h, Key::Y);
+    assert_eq!(h.state().view_model().redo_len(), 0);
+    assert_eq!(
+        h.state()
+            .view_model()
+            .render_export(ExportMode::DrawingOnly),
+        drawn
+    );
+
+    // Reload in a freshly launched app via File > Open project.
+    let mut h2 = launch(dir.path());
+    h2.get_by_label("ファイル").click();
+    h2.run();
+    h2.get_by_label("プロジェクトを開く…").click();
+    h2.run();
+    assert_eq!(h2.state().message(), "プロジェクトを開きました");
+    assert_eq!(
+        h2.state()
+            .view_model()
+            .render_export(ExportMode::DrawingOnly),
+        drawn
+    );
+}
+
+#[test]
+fn shortcuts_select_delete_and_ctrl_wheel_zoom() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = launch(dir.path());
+    stroke(&mut h, &[(10.0, 50.0), (150.0, 50.0)]);
+
+    h.get_by_label("範囲選択").click();
+    h.run();
+    stroke(&mut h, &[(0.0, 0.0), (200.0, 100.0)]);
+    h.key_press(Key::Delete);
+    h.run();
+    let img = h
+        .state()
+        .view_model()
+        .render_export(ExportMode::DrawingOnly);
+    assert_eq!(img.pixel(80, 50).unwrap().a, 0, "selection cleared");
+    assert_eq!(h.state().view_model().undo_len(), 2);
+
+    let over_canvas = screen(&h, 50.0, 50.0);
+    h.event(Event::PointerMoved(over_canvas));
+    h.event(Event::Zoom(2.0));
+    h.run_steps(15); // scroll offset animates after zoom
+    assert!(
+        (h.state().zoom() - 2.0).abs() < 1e-3,
+        "zoom {}",
+        h.state().zoom()
+    );
+}
+
+#[test]
+fn transparent_png_export_from_menu() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = launch(dir.path());
+    stroke(&mut h, &[(5.0, 5.0), (50.0, 5.0)]);
+    h.get_by_label("ファイル").click();
+    h.run();
+    h.get_by_label("透過 PNG 書き出し (描画レイヤーのみ)…")
+        .click();
+    h.run();
+    let bytes = std::fs::read(dir.path().join("e2e.png")).unwrap();
+    let img = paint_persistence::decode_image(&bytes).unwrap();
+    assert_eq!(img.pixel(500, 500).unwrap().a, 0, "background transparent");
+    assert!(img.pixel(25, 5).unwrap().a > 0);
+}

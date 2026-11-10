@@ -15,6 +15,15 @@ path = "src/main.rs"
 paint-app.workspace = true
 paint-persistence.workspace = true
 eframe = "0.37"
+rfd = "0.17"
+paint-domain.workspace = true
+paint-tools.workspace = true
+paint-engine.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+egui_kittest = { version = "0.37", features = ["eframe"] }
+paint-persistence.workspace = true
+tempfile = "3"
