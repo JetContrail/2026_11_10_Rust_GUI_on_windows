@@ -1,0 +1,20 @@
+[package]
+name = "paint-ui"
+description = "Windows GUI paint application (eframe/egui view and composition root)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "paint"
+path = "src/main.rs"
+
+[dependencies]
+paint-app.workspace = true
+paint-persistence.workspace = true
+eframe = "0.37"
+
+[lints]
+workspace = true

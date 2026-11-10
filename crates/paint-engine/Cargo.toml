@@ -1,0 +1,14 @@
+[package]
+name = "paint-engine"
+description = "Drawing engine: rasterizes draw operations into RGBA buffers and composes layers."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+paint-domain.workspace = true
+
+[lints]
+workspace = true

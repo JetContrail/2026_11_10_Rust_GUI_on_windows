@@ -1,0 +1,11 @@
+[package]
+name = "paint-domain"
+description = "Domain model of the paint application: colors, geometry, layers, draw operations, document and undo/redo history."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
