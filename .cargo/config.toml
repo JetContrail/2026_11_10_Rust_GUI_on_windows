@@ -1,0 +1,4 @@
+# Link the MSVC C runtime statically so paint.exe runs standalone
+# (no Visual C++ Redistributable required on Windows 10/11).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

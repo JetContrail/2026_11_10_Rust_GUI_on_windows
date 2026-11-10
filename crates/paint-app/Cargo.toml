@@ -1,0 +1,16 @@
+[package]
+name = "paint-app"
+description = "Application layer (ViewModel) of the paint application."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+paint-domain.workspace = true
+paint-engine.workspace = true
+paint-tools.workspace = true
+
+[lints]
+workspace = true

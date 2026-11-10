@@ -1,0 +1,14 @@
+[package]
+name = "paint-tools"
+description = "Tool logic: converts pointer input into draw operations and selections (GUI independent)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+paint-domain.workspace = true
+
+[lints]
+workspace = true
