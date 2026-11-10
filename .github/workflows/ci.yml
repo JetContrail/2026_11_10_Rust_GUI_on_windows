@@ -36,6 +36,9 @@ jobs:
         run: cargo test --workspace --locked
       - name: cargo build --release
         run: cargo build --release --locked
+      - name: Release smoke test (startup <= 3 s, memory <= 500 MB)
+        shell: pwsh
+        run: ./scripts/smoke.ps1
       - name: Upload paint.exe
         uses: actions/upload-artifact@v4
         with:
@@ -59,3 +62,7 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: cargo test
         run: cargo test --workspace --locked
+      - name: cargo doc
+        run: cargo doc --workspace --no-deps --locked
+        env:
+          RUSTDOCFLAGS: -D warnings
