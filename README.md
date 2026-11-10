@@ -92,4 +92,4 @@ cargo build --release --locked
 
 ## ライセンス
 
-未定 (PO 決定待ち)。
+[MIT License](LICENSE)。依存クレートはそれぞれのライセンス (MIT / Apache-2.0 など) に従います。
