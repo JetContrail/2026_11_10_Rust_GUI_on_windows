@@ -23,6 +23,7 @@ pub(crate) struct CanvasView {
     underlay: Option<(u64, TextureHandle)>,
     drawing: Option<TextureHandle>,
     drawing_active: bool,
+    panning: bool,
     pub(crate) cursor: Option<Point>,
     pub(crate) screen_rect: Option<Rect>,
 }
@@ -86,9 +87,11 @@ impl CanvasView {
             result = self.handle_pointer(ui, &response, vm);
             response.hovered()
         });
+        let offset = output.state.clamped_offset();
         if output.inner {
-            self.handle_zoom(ui, output.state.clamped_offset(), output.inner_rect);
+            self.handle_zoom(ui, offset, output.inner_rect);
         }
+        self.handle_pan(ui, output.inner, offset);
         result
     }
 
@@ -129,14 +132,16 @@ impl CanvasView {
         response: &egui::Response,
         vm: &mut PaintViewModel,
     ) -> Result<(), String> {
-        let (pos, pressed, down, released) = ui.input(|i| {
+        let (pos, pressed, down, released, shift) = ui.input(|i| {
             (
                 i.pointer.latest_pos(),
                 i.pointer.primary_pressed(),
                 i.pointer.primary_down(),
                 i.pointer.primary_released(),
+                i.modifiers.shift,
             )
         });
+        vm.set_shift(shift);
         self.cursor = pos
             .filter(|_| response.hovered() || self.drawing_active)
             .and_then(|p| self.to_canvas(p));
@@ -155,6 +160,15 @@ impl CanvasView {
             Ok(())
         };
         result.map_err(|e| e.to_string())
+    }
+
+    /// Middle-button drag pans the view.
+    fn handle_pan(&mut self, ui: &egui::Ui, hovered: bool, offset: Vec2) {
+        let (down, delta) = ui.input(|i| (i.pointer.middle_down(), i.pointer.delta()));
+        self.panning = down && (self.panning || hovered);
+        if self.panning && delta != Vec2::ZERO && self.pending_offset.is_none() {
+            self.pending_offset = Some(offset - delta);
+        }
     }
 
     /// Ctrl + mouse wheel zoom, keeping the canvas point under the cursor.

@@ -22,8 +22,20 @@ pub enum ToolEvent {
 #[derive(Debug, Clone, PartialEq)]
 enum Gesture {
     Idle,
-    Stroke { points: Vec<Point> },
-    Selecting { anchor: Point },
+    /// Freehand stroke. `line_end` is set while Shift is held: the
+    /// preview is a straight line from the last point to `line_end`.
+    Stroke {
+        points: Vec<Point>,
+        line_end: Option<Point>,
+    },
+    /// Straight-line tool: press = start, release = end.
+    Line {
+        start: Point,
+        end: Point,
+    },
+    Selecting {
+        anchor: Point,
+    },
 }
 
 /// State machine turning pointer input into [`ToolEvent`]s.
@@ -36,6 +48,7 @@ pub struct ToolController {
     settings: ToolSettings,
     gesture: Gesture,
     selection: Option<PixelRect>,
+    shift: bool,
 }
 
 impl Default for ToolController {
@@ -51,6 +64,7 @@ impl ToolController {
             settings,
             gesture: Gesture::Idle,
             selection: None,
+            shift: false,
         }
     }
 
@@ -83,6 +97,20 @@ impl ToolController {
         events
     }
 
+    /// Updates the Shift modifier state. While Shift is held during a pen
+    /// or eraser drag, the segment from the point where Shift was pressed to
+    /// the cursor is previewed as a straight line; releasing Shift fixes the
+    /// line and freehand drawing continues within the same stroke.
+    pub fn set_shift(&mut self, shift: bool) {
+        self.shift = shift;
+        if !shift
+            && let Gesture::Stroke { points, line_end } = &mut self.gesture
+            && let Some(end) = line_end.take()
+        {
+            push_point(points, end);
+        }
+    }
+
     /// Pointer button pressed at `p`.
     pub fn press(&mut self, p: Point, _canvas: CanvasSize) -> Vec<ToolEvent> {
         let mut events = self.cancel();
@@ -91,7 +119,14 @@ impl ToolController {
         }
         match self.tool {
             ToolKind::Pen | ToolKind::Eraser => {
-                self.gesture = Gesture::Stroke { points: vec![p] };
+                self.gesture = Gesture::Stroke {
+                    points: vec![p],
+                    line_end: None,
+                };
+                events.extend(self.stroke_op().map(ToolEvent::Preview));
+            }
+            ToolKind::Line => {
+                self.gesture = Gesture::Line { start: p, end: p };
                 events.extend(self.stroke_op().map(ToolEvent::Preview));
             }
             ToolKind::Select => {
@@ -107,20 +142,29 @@ impl ToolController {
         if !p.is_finite() {
             return Vec::new();
         }
+        let shift = self.shift;
         match &mut self.gesture {
             Gesture::Idle => Vec::new(),
-            Gesture::Stroke { points } => {
-                if points
-                    .last()
-                    .is_some_and(|last| last.distance(p) < MIN_POINT_DISTANCE)
-                {
+            Gesture::Stroke { points, line_end } => {
+                let changed = if shift {
+                    let changed = *line_end != Some(p);
+                    *line_end = Some(p);
+                    changed
+                } else {
+                    let fixed = line_end.take().is_some_and(|end| push_point(points, end));
+                    push_point(points, p) || fixed
+                };
+                if !changed {
                     return Vec::new();
                 }
-                points.push(p);
-                self.stroke_op()
-                    .map(ToolEvent::Preview)
-                    .into_iter()
-                    .collect()
+                self.preview()
+            }
+            Gesture::Line { end, .. } => {
+                if *end == p {
+                    return Vec::new();
+                }
+                *end = p;
+                self.preview()
             }
             Gesture::Selecting { anchor } => {
                 let rect = PixelRect::from_corners(*anchor, p, canvas);
@@ -135,7 +179,7 @@ impl ToolController {
     pub fn release(&mut self, p: Point, canvas: CanvasSize) -> Vec<ToolEvent> {
         let mut events = self.drag(p, canvas);
         let gesture = std::mem::replace(&mut self.gesture, Gesture::Idle);
-        if let Gesture::Stroke { points } = gesture {
+        if let Some(points) = gesture_points(gesture) {
             events.extend(self.make_stroke(points).map(ToolEvent::Commit));
         }
         events
@@ -144,7 +188,7 @@ impl ToolController {
     /// Aborts the gesture in progress (e.g. pointer capture lost).
     pub fn cancel(&mut self) -> Vec<ToolEvent> {
         match std::mem::replace(&mut self.gesture, Gesture::Idle) {
-            Gesture::Stroke { .. } => vec![ToolEvent::CancelPreview],
+            Gesture::Stroke { .. } | Gesture::Line { .. } => vec![ToolEvent::CancelPreview],
             Gesture::Idle | Gesture::Selecting { .. } => Vec::new(),
         }
     }
@@ -170,10 +214,14 @@ impl ToolController {
     }
 
     fn stroke_op(&self) -> Option<DrawOp> {
-        match &self.gesture {
-            Gesture::Stroke { points } => self.make_stroke(points.clone()),
-            Gesture::Idle | Gesture::Selecting { .. } => None,
-        }
+        gesture_points(self.gesture.clone()).and_then(|points| self.make_stroke(points))
+    }
+
+    fn preview(&self) -> Vec<ToolEvent> {
+        self.stroke_op()
+            .map(ToolEvent::Preview)
+            .into_iter()
+            .collect()
     }
 
     fn make_stroke(&self, points: Vec<Point>) -> Option<DrawOp> {
@@ -181,7 +229,7 @@ impl ToolController {
             return None;
         }
         Some(match self.tool {
-            ToolKind::Pen => DrawOp::Stroke {
+            ToolKind::Pen | ToolKind::Line => DrawOp::Stroke {
                 color: self.settings.color,
                 width: self.settings.pen_width,
                 points,
@@ -192,6 +240,41 @@ impl ToolController {
             },
             ToolKind::Select => return None,
         })
+    }
+}
+
+/// Appends `p` unless it is within [`MIN_POINT_DISTANCE`] of the last
+/// point. Returns whether the point was added.
+fn push_point(points: &mut Vec<Point>, p: Point) -> bool {
+    if points
+        .last()
+        .is_some_and(|last| last.distance(p) < MIN_POINT_DISTANCE)
+    {
+        return false;
+    }
+    points.push(p);
+    true
+}
+
+/// The polyline a drawing gesture would commit (including any pending
+/// Shift line segment); `None` for non-drawing gestures.
+fn gesture_points(gesture: Gesture) -> Option<Vec<Point>> {
+    match gesture {
+        Gesture::Stroke {
+            mut points,
+            line_end,
+        } => {
+            if let Some(end) = line_end {
+                push_point(&mut points, end);
+            }
+            Some(points)
+        }
+        Gesture::Line { start, end } => {
+            let mut points = vec![start];
+            push_point(&mut points, end);
+            Some(points)
+        }
+        Gesture::Idle | Gesture::Selecting { .. } => None,
     }
 }
 
@@ -262,6 +345,103 @@ mod tests {
             committed(&events)[0].points(),
             [pt(0.0, 0.0), pt(5.0, 5.0), pt(9.0, 3.0)]
         );
+    }
+
+    #[test]
+    fn shift_drag_previews_straight_line_from_shift_point() {
+        let mut t = pen();
+        t.press(pt(0.0, 0.0), CANVAS);
+        t.drag(pt(10.0, 0.0), CANVAS);
+        t.set_shift(true);
+        t.drag(pt(30.0, 7.0), CANVAS);
+        let events = t.drag(pt(40.0, 20.0), CANVAS);
+        assert!(matches!(
+            events.as_slice(),
+            [ToolEvent::Preview(op)]
+                if op.points() == [pt(0.0, 0.0), pt(10.0, 0.0), pt(40.0, 20.0)]
+        ));
+        let events = t.release(pt(50.0, 30.0), CANVAS);
+        assert_eq!(
+            committed(&events)[0].points(),
+            [pt(0.0, 0.0), pt(10.0, 0.0), pt(50.0, 30.0)],
+            "intermediate cursor positions are not recorded while Shift is held"
+        );
+    }
+
+    #[test]
+    fn releasing_shift_fixes_line_and_continues_freehand() {
+        let mut t = pen();
+        t.press(pt(0.0, 0.0), CANVAS);
+        t.set_shift(true);
+        t.drag(pt(5.0, 5.0), CANVAS);
+        t.drag(pt(20.0, 0.0), CANVAS);
+        t.set_shift(false);
+        t.drag(pt(25.0, 3.0), CANVAS);
+        let events = t.release(pt(30.0, 1.0), CANVAS);
+        assert_eq!(
+            committed(&events),
+            [&DrawOp::Stroke {
+                color: Color::rgb(255, 0, 0),
+                width: StrokeWidth::Px8,
+                points: vec![pt(0.0, 0.0), pt(20.0, 0.0), pt(25.0, 3.0), pt(30.0, 1.0)],
+            }],
+            "one stroke = one undo step"
+        );
+    }
+
+    #[test]
+    fn shift_line_works_with_eraser() {
+        let mut t = pen();
+        t.set_tool(ToolKind::Eraser);
+        t.set_shift(true);
+        t.press(pt(0.0, 0.0), CANVAS);
+        t.drag(pt(3.0, 9.0), CANVAS);
+        let events = t.release(pt(40.0, 0.0), CANVAS);
+        assert_eq!(
+            committed(&events),
+            [&DrawOp::Erase {
+                width: StrokeWidth::Px32,
+                points: vec![pt(0.0, 0.0), pt(40.0, 0.0)],
+            }]
+        );
+    }
+
+    #[test]
+    fn line_tool_draws_from_press_to_release() {
+        let mut t = pen();
+        t.set_tool(ToolKind::Line);
+        assert!(matches!(
+            t.press(pt(1.0, 2.0), CANVAS).as_slice(),
+            [ToolEvent::Preview(op)] if op.points() == [pt(1.0, 2.0)]
+        ));
+        assert!(matches!(
+            t.drag(pt(30.0, 5.0), CANVAS).as_slice(),
+            [ToolEvent::Preview(op)] if op.points() == [pt(1.0, 2.0), pt(30.0, 5.0)]
+        ));
+        let events = t.release(pt(60.0, 40.0), CANVAS);
+        assert_eq!(
+            committed(&events),
+            [&DrawOp::Stroke {
+                color: Color::rgb(255, 0, 0),
+                width: StrokeWidth::Px8,
+                points: vec![pt(1.0, 2.0), pt(60.0, 40.0)],
+            }]
+        );
+    }
+
+    #[test]
+    fn line_tool_click_draws_a_dot_and_cancel_discards() {
+        let mut t = pen();
+        t.set_tool(ToolKind::Line);
+        t.press(pt(5.0, 5.0), CANVAS);
+        assert_eq!(
+            committed(&t.release(pt(5.0, 5.0), CANVAS))[0].points(),
+            [pt(5.0, 5.0)]
+        );
+        t.press(pt(5.0, 5.0), CANVAS);
+        t.drag(pt(9.0, 9.0), CANVAS);
+        assert_eq!(t.cancel(), [ToolEvent::CancelPreview]);
+        assert!(!t.is_active());
     }
 
     #[test]

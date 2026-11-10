@@ -183,6 +183,11 @@ impl PaintViewModel {
 
     // ----- pointer / keyboard input (canvas coordinates) -----
 
+    /// Shift modifier state (straight-line segment while drawing).
+    pub fn set_shift(&mut self, shift: bool) {
+        self.tools.set_shift(shift);
+    }
+
     pub fn pointer_pressed(&mut self, p: Point) -> Result<(), AppError> {
         let events = self.tools.press(p, self.canvas());
         self.apply_tool_events(events)
@@ -498,6 +503,20 @@ mod tests {
 
     fn ops(vm: &PaintViewModel) -> usize {
         vm.document().ops(Document::DRAWING_LAYER).unwrap().len()
+    }
+
+    #[test]
+    fn shift_drag_commits_one_straight_segment() {
+        let (mut vm, _) = vm();
+        vm.pointer_pressed(Point::new(0.0, 10.0)).unwrap();
+        vm.set_shift(true);
+        vm.pointer_dragged(Point::new(20.0, 30.0)).unwrap();
+        vm.pointer_released(Point::new(40.0, 10.0)).unwrap();
+        vm.set_shift(false);
+        assert_eq!(vm.undo_len(), 1);
+        let img = vm.render_export(ExportMode::DrawingOnly);
+        assert!(img.pixel(20, 10).unwrap().a > 0, "on the straight line");
+        assert_eq!(img.pixel(20, 30).unwrap().a, 0, "detour not drawn");
     }
 
     #[test]
