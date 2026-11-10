@@ -60,7 +60,7 @@ impl PaintApp {
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
         egui::Panel::left("tools")
             .resizable(false)
-            .exact_size(170.0)
+            .exact_size(200.0)
             .show(ui, |ui| self.tool_palette(ui));
         egui::Panel::right("layers")
             .resizable(false)
