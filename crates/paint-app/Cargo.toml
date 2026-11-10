@@ -14,3 +14,7 @@ paint-tools.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+paint-persistence.workspace = true
+tempfile = "3"
