@@ -6,6 +6,8 @@ pub enum ToolKind {
     /// Freehand pen; a click without movement draws a dot.
     #[default]
     Pen,
+    /// Straight line: press = start point, release = end point.
+    Line,
     /// Freehand eraser.
     Eraser,
     /// Rectangle selection for range erase (Delete key).
@@ -13,7 +15,7 @@ pub enum ToolKind {
 }
 
 impl ToolKind {
-    pub const ALL: [Self; 3] = [Self::Pen, Self::Eraser, Self::Select];
+    pub const ALL: [Self; 4] = [Self::Pen, Self::Line, Self::Eraser, Self::Select];
 }
 
 /// User-selected tool parameters (pen color / width, eraser size).

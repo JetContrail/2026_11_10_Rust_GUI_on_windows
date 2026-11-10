@@ -13,6 +13,20 @@ const SAVE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::S)
 const UNDO: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Z);
 const REDO: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Y);
 
+/// An action that discards unsaved changes and therefore needs confirmation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PendingAction {
+    OpenProject,
+    Exit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Choice {
+    Save,
+    Discard,
+    Cancel,
+}
+
 /// Main window: tool palette (left), canvas (center), layer panel (right),
 /// status bar (bottom).
 #[derive(Debug)]
@@ -22,6 +36,8 @@ pub struct PaintApp {
     canvas: CanvasView,
     message: String,
     title: String,
+    confirm: Option<PendingAction>,
+    allow_close: bool,
 }
 
 impl PaintApp {
@@ -32,6 +48,8 @@ impl PaintApp {
             canvas: CanvasView::new(),
             message: "準備完了".to_owned(),
             title: String::new(),
+            confirm: None,
+            allow_close: false,
         }
     }
 
@@ -52,9 +70,18 @@ impl PaintApp {
         self.canvas.to_screen(paint_domain::Point::new(x, y))
     }
 
+    /// `true` while the unsaved-changes confirmation dialog is shown.
+    pub fn is_confirming(&self) -> bool {
+        self.confirm.is_some()
+    }
+
     /// Draws one frame.
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        self.handle_shortcuts(ui.ctx());
+        self.handle_close_request(ui.ctx());
+        self.confirm_dialog(ui.ctx());
+        if self.confirm.is_none() {
+            self.handle_shortcuts(ui.ctx());
+        }
         self.update_title(ui.ctx());
         egui::Panel::top("menu").show(ui, |ui| self.menu_bar(ui));
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
@@ -107,6 +134,67 @@ impl PaintApp {
         }
     }
 
+    fn handle_close_request(&mut self, ctx: &egui::Context) {
+        if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close {
+            if self.vm.is_modified() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                self.confirm = Some(PendingAction::Exit);
+            } else {
+                self.allow_close = true;
+            }
+        }
+    }
+
+    /// Modal "save changes?" dialog shown before discarding unsaved work.
+    fn confirm_dialog(&mut self, ctx: &egui::Context) {
+        let Some(action) = self.confirm else {
+            return;
+        };
+        let mut choice = None;
+        let modal = egui::Modal::new(egui::Id::unique("unsaved-changes")).show(ctx, |ui| {
+            ui.heading("未保存の変更があります");
+            ui.label("変更を保存しますか?");
+            ui.horizontal(|ui| {
+                for (label, c) in [
+                    ("保存", Choice::Save),
+                    ("保存しない", Choice::Discard),
+                    ("キャンセル", Choice::Cancel),
+                ] {
+                    if ui.button(label).clicked() {
+                        choice = Some(c);
+                    }
+                }
+            });
+        });
+        if modal.should_close() && choice.is_none() {
+            choice = Some(Choice::Cancel);
+        }
+        let Some(choice) = choice else {
+            return;
+        };
+        self.confirm = None;
+        match choice {
+            Choice::Cancel => {}
+            Choice::Save => {
+                self.save();
+                if !self.vm.is_modified() {
+                    self.run(ctx, action);
+                }
+            }
+            Choice::Discard => self.run(ctx, action),
+        }
+    }
+
+    fn run(&mut self, ctx: &egui::Context, action: PendingAction) {
+        match action {
+            PendingAction::OpenProject => self.open_project_unchecked(),
+            PendingAction::Exit => {
+                self.allow_close = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
+    }
+
     fn update_title(&mut self, ctx: &egui::Context) {
         let name = self
             .vm
@@ -143,6 +231,10 @@ impl PaintApp {
                 }
                 if ui.button("透過 PNG 書き出し (描画レイヤーのみ)…").clicked() {
                     self.export(ExportMode::DrawingOnly);
+                }
+                ui.separator();
+                if ui.button("終了").clicked() {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             });
             ui.menu_button("編集", |ui| {
@@ -297,6 +389,14 @@ impl PaintApp {
     }
 
     fn open_project(&mut self) {
+        if self.vm.is_modified() {
+            self.confirm = Some(PendingAction::OpenProject);
+        } else {
+            self.open_project_unchecked();
+        }
+    }
+
+    fn open_project_unchecked(&mut self) {
         if let Some(path) = self.dialogs.open_project() {
             let result = self.vm.open_project(&path);
             self.report(result, "プロジェクトを開きました");
@@ -357,6 +457,7 @@ impl eframe::App for PaintApp {
 fn tool_name(tool: ToolKind) -> &'static str {
     match tool {
         ToolKind::Pen => "ペン",
+        ToolKind::Line => "直線",
         ToolKind::Eraser => "消しゴム",
         ToolKind::Select => "範囲選択",
     }

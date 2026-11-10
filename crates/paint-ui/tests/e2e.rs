@@ -180,3 +180,84 @@ fn transparent_png_export_from_menu() {
     assert_eq!(img.pixel(500, 500).unwrap().a, 0, "background transparent");
     assert!(img.pixel(25, 5).unwrap().a > 0);
 }
+
+#[test]
+fn line_tool_and_shift_straight_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = launch(dir.path());
+    h.get_by_label("直線").click();
+    h.run();
+    stroke(&mut h, &[(10.0, 10.0), (50.0, 90.0), (100.0, 10.0)]);
+    let img = h
+        .state()
+        .view_model()
+        .render_export(ExportMode::DrawingOnly);
+    assert!(img.pixel(55, 10).unwrap().a > 0, "start-to-end line");
+    assert_eq!(img.pixel(50, 90).unwrap().a, 0, "drag path not drawn");
+
+    h.get_by_label("ペン").click();
+    h.run();
+    h.event(Event::ModifiersChanged(Modifiers::SHIFT));
+    stroke(&mut h, &[(10.0, 200.0), (50.0, 300.0), (100.0, 200.0)]);
+    h.event(Event::ModifiersChanged(Modifiers::NONE));
+    h.run();
+    let img = h
+        .state()
+        .view_model()
+        .render_export(ExportMode::DrawingOnly);
+    assert!(img.pixel(55, 200).unwrap().a > 0, "Shift straight line");
+    assert_eq!(img.pixel(50, 300).unwrap().a, 0, "detour not drawn");
+    assert_eq!(h.state().view_model().undo_len(), 2);
+}
+
+fn open_project_from_menu(h: &mut Harness<'_, PaintApp>) {
+    h.get_by_label("ファイル").click();
+    h.run();
+    h.get_by_label("プロジェクトを開く…").click();
+    h.run();
+}
+
+#[test]
+fn unsaved_changes_are_confirmed_before_opening_a_project() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = launch(dir.path());
+    stroke(&mut h, &[(10.0, 10.0)]);
+    ctrl(&mut h, Key::S);
+    stroke(&mut h, &[(30.0, 30.0)]);
+    assert!(h.state().view_model().is_modified());
+
+    // Cancel keeps the unsaved drawing.
+    open_project_from_menu(&mut h);
+    assert!(h.state().is_confirming());
+    h.get_by_label("未保存の変更があります");
+    h.get_by_label("キャンセル").click();
+    h.run();
+    assert!(!h.state().is_confirming());
+    assert_eq!(h.state().view_model().undo_len(), 2);
+
+    // Discard opens the saved project (one dot).
+    open_project_from_menu(&mut h);
+    h.get_by_label("保存しない").click();
+    h.run();
+    assert!(!h.state().view_model().is_modified());
+    assert_eq!(
+        h.state()
+            .view_model()
+            .document()
+            .ops(paint_domain::Document::DRAWING_LAYER)
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn opening_without_changes_needs_no_confirmation() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = launch(dir.path());
+    stroke(&mut h, &[(10.0, 10.0)]);
+    ctrl(&mut h, Key::S);
+    open_project_from_menu(&mut h);
+    assert!(!h.state().is_confirming());
+    assert_eq!(h.state().message(), "プロジェクトを開きました");
+}
