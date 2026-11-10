@@ -2368,6 +2368,8 @@ version = "0.1.0"
 name = "paint-engine"
 version = "0.1.0"
 dependencies = [
+ "ab_glyph",
+ "epaint_default_fonts",
  "paint-domain",
 ]
 
@@ -2376,6 +2378,7 @@ name = "paint-persistence"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "fontique",
  "image",
  "paint-domain",
  "serde",

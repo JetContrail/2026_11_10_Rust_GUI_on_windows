@@ -7,7 +7,7 @@ use crate::raster::{RenderOptions, render_op};
 pub fn render_vector_layer(
     canvas: CanvasSize,
     ops: &[DrawOp],
-    options: RenderOptions,
+    options: &RenderOptions,
 ) -> RasterImage {
     let mut image = RasterImage::transparent(canvas);
     for op in ops {
@@ -21,7 +21,7 @@ pub fn render_vector_layer(
 /// result can be written as a transparent PNG.
 pub fn compose_visible(
     doc: &Document,
-    options: RenderOptions,
+    options: &RenderOptions,
     include: impl Fn(&paint_domain::Layer) -> bool,
 ) -> RasterImage {
     let canvas = doc.canvas();
@@ -87,7 +87,7 @@ mod tests {
     #[test]
     fn composes_drawing_over_underlay() {
         let doc = doc_with_underlay();
-        let img = compose_visible(&doc, RenderOptions::default(), |_| true);
+        let img = compose_visible(&doc, &RenderOptions::default(), |_| true);
         assert_eq!(img.pixel(10, 10), Some(Color::rgb(0, 0, 255)));
         assert_eq!(img.pixel(0, 0), Some(Color::WHITE));
     }
@@ -95,13 +95,13 @@ mod tests {
     #[test]
     fn hidden_or_excluded_layers_leave_transparency() {
         let mut doc = doc_with_underlay();
-        let drawing_only = compose_visible(&doc, RenderOptions::default(), |l| !l.locked);
+        let drawing_only = compose_visible(&doc, &RenderOptions::default(), |l| !l.locked);
         assert_eq!(drawing_only.pixel(0, 0), Some(Color::TRANSPARENT));
         assert_eq!(drawing_only.pixel(10, 10), Some(Color::rgb(0, 0, 255)));
 
         doc.set_layer_visible(Document::DRAWING_LAYER, false)
             .unwrap();
-        let underlay_only = compose_visible(&doc, RenderOptions::default(), |_| true);
+        let underlay_only = compose_visible(&doc, &RenderOptions::default(), |_| true);
         assert_eq!(underlay_only.pixel(10, 10), Some(Color::WHITE));
     }
 
@@ -118,7 +118,7 @@ mod tests {
                 rect: paint_domain::PixelRect::new(0, 0, 5, 10),
             },
         ];
-        let img = render_vector_layer(size, &ops, RenderOptions::default());
+        let img = render_vector_layer(size, &ops, &RenderOptions::default());
         assert_eq!(img.pixel(2, 2), Some(Color::TRANSPARENT));
         assert_eq!(img.pixel(7, 7), Some(Color::BLACK));
     }

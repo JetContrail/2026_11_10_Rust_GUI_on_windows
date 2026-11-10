@@ -12,10 +12,18 @@ pub enum ToolKind {
     Eraser,
     /// Rectangle selection for range erase (Delete key).
     Select,
+    /// Text: a click places a text box (edited by the ViewModel / UI).
+    Text,
 }
 
 impl ToolKind {
-    pub const ALL: [Self; 4] = [Self::Pen, Self::Line, Self::Eraser, Self::Select];
+    pub const ALL: [Self; 5] = [
+        Self::Pen,
+        Self::Line,
+        Self::Eraser,
+        Self::Select,
+        Self::Text,
+    ];
 }
 
 /// User-selected tool parameters (pen color / width, eraser size).

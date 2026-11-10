@@ -261,3 +261,86 @@ fn opening_without_changes_needs_no_confirmation() {
     assert!(!h.state().is_confirming());
     assert_eq!(h.state().message(), "プロジェクトを開きました");
 }
+
+fn text_ops(h: &Harness<'_, PaintApp>) -> Vec<paint_domain::DrawOp> {
+    h.state()
+        .view_model()
+        .document()
+        .ops(paint_domain::Document::DRAWING_LAYER)
+        .unwrap()
+        .iter()
+        .filter(|op| matches!(op, paint_domain::DrawOp::Text { .. }))
+        .cloned()
+        .collect()
+}
+
+fn type_text(h: &mut Harness<'_, PaintApp>, text: &str) {
+    h.event(Event::Text(text.to_owned()));
+    h.run();
+}
+
+#[test]
+fn text_tool_enter_newline_ctrl_enter_commit_esc_cancel() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = launch(dir.path());
+    h.get_by_label("テキスト").click();
+    h.run();
+    h.get_by_label("64").click();
+    h.run();
+    stroke(&mut h, &[(40.0, 120.0)]);
+    assert!(h.state().view_model().text_draft().is_some());
+    type_text(&mut h, "Hello");
+    h.key_press(Key::Enter);
+    h.run();
+    type_text(&mut h, "日本語");
+    assert_eq!(
+        h.state().view_model().text_draft().unwrap().text,
+        "Hello\n日本語"
+    );
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Enter);
+    h.run();
+    assert!(h.state().view_model().text_draft().is_none());
+    let ops = text_ops(&h);
+    assert_eq!(ops.len(), 1);
+    let paint_domain::DrawOp::Text { text, size, .. } = &ops[0] else {
+        unreachable!()
+    };
+    assert_eq!((text.as_str(), size.px()), ("Hello\n日本語", 64));
+    if cfg!(windows) {
+        let img = h
+            .state()
+            .view_model()
+            .render_export(ExportMode::DrawingOnly);
+        assert!(img.pixels().chunks(4).any(|p| p[3] > 0), "text rendered");
+    }
+
+    stroke(&mut h, &[(300.0, 300.0)]);
+    type_text(&mut h, "discard");
+    h.key_press(Key::Escape);
+    h.run();
+    assert!(h.state().view_model().text_draft().is_none());
+    assert_eq!(text_ops(&h).len(), 1);
+    assert_eq!(h.state().view_model().undo_len(), 1);
+}
+
+#[test]
+fn font_selection_window_changes_the_text_font() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = launch(dir.path());
+    h.get_by_label("テキスト").click();
+    h.run();
+    h.get_by_label("フォント選択…").click();
+    h.run();
+    let families = h.state().view_model().font_families();
+    let Some(name) = families.first().cloned() else {
+        h.get_by_label("キャンセル").click();
+        h.run();
+        return;
+    };
+    h.get_all_by_label(&name).last().unwrap().click();
+    h.run();
+    h.get_by_label("OK").click();
+    h.run();
+    assert_eq!(h.state().view_model().text_font(), name);
+    assert!(h.query_by_label("OK").is_none(), "window closed");
+}

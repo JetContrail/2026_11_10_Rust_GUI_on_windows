@@ -1,27 +1,40 @@
 use paint_domain::{CanvasSize, DrawOp, PixelRect, Point, RasterImage};
 
 use crate::blend::{blend_over, erase};
+use crate::text::{FontLibrary, text_bounds, text_mask};
 
-/// Rendering quality options.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Rendering quality options and resources.
+#[derive(Debug, Clone, PartialEq)]
 pub struct RenderOptions {
-    /// Smooth (anti-aliased) brush edges.
+    /// Smooth (anti-aliased) brush and glyph edges.
     pub antialias: bool,
+    /// Fonts used for [`DrawOp::Text`].
+    pub fonts: FontLibrary,
 }
 
 impl Default for RenderOptions {
     fn default() -> Self {
-        Self { antialias: true }
+        Self {
+            antialias: true,
+            fonts: FontLibrary::default(),
+        }
     }
 }
 
 /// Pixel area an operation may modify (clamped to the canvas).
-pub fn op_bounds(op: &DrawOp, canvas: CanvasSize) -> PixelRect {
+pub fn op_bounds(op: &DrawOp, canvas: CanvasSize, options: &RenderOptions) -> PixelRect {
     match op {
         DrawOp::Stroke { width, points, .. } | DrawOp::Erase { width, points } => {
             stroke_bounds(points, width.px() as f32 / 2.0, canvas)
         }
         DrawOp::ClearRect { rect } => rect.clamp_to(canvas),
+        DrawOp::Text {
+            text,
+            origin,
+            size,
+            font,
+            ..
+        } => text_bounds(&options.fonts, font, text, *origin, *size, canvas),
     }
 }
 
@@ -48,9 +61,9 @@ fn stroke_bounds(points: &[Point], radius: f32, canvas: CanvasSize) -> PixelRect
 }
 
 /// Renders `op` onto `target` and returns the modified area.
-pub fn render_op(target: &mut RasterImage, op: &DrawOp, options: RenderOptions) -> PixelRect {
+pub fn render_op(target: &mut RasterImage, op: &DrawOp, options: &RenderOptions) -> PixelRect {
     let canvas = target.size();
-    let bounds = op_bounds(op, canvas);
+    let bounds = op_bounds(op, canvas, options);
     if bounds.is_empty() {
         return bounds;
     }
@@ -77,6 +90,23 @@ pub fn render_op(target: &mut RasterImage, op: &DrawOp, options: RenderOptions) 
                 target.pixels_mut()[start..start + rect.width as usize * 4].fill(0);
             }
         }
+        DrawOp::Text {
+            text,
+            origin,
+            size,
+            color,
+            font,
+        } => {
+            let mut mask = text_mask(&options.fonts, font, text, *origin, *size, bounds);
+            if !options.antialias {
+                for c in &mut mask {
+                    *c = if *c >= 0.5 { 1.0 } else { 0.0 };
+                }
+            }
+            apply_mask(target, bounds, &mask, |px, c| {
+                blend_over(px, color.to_array(), c);
+            });
+        }
     }
     bounds
 }
@@ -88,7 +118,7 @@ fn coverage_mask(
     points: &[Point],
     radius: f32,
     bounds: PixelRect,
-    options: RenderOptions,
+    options: &RenderOptions,
 ) -> Vec<f32> {
     let w = bounds.width as usize;
     let mut mask = vec![0.0f32; w * bounds.height as usize];
@@ -166,8 +196,16 @@ mod tests {
     use super::*;
 
     const RED: Color = Color::rgb(255, 0, 0);
-    const AA: RenderOptions = RenderOptions { antialias: true };
-    const CRISP: RenderOptions = RenderOptions { antialias: false };
+    fn aa() -> RenderOptions {
+        RenderOptions::default()
+    }
+
+    fn crisp() -> RenderOptions {
+        RenderOptions {
+            antialias: false,
+            ..RenderOptions::default()
+        }
+    }
 
     fn canvas() -> RasterImage {
         RasterImage::transparent(CanvasSize::new(100, 100).unwrap())
@@ -195,7 +233,11 @@ mod tests {
     #[test]
     fn dot_is_drawn_at_click_position() {
         let mut img = canvas();
-        render_op(&mut img, &stroke(StrokeWidth::Px1, &[(10.5, 20.5)]), CRISP);
+        render_op(
+            &mut img,
+            &stroke(StrokeWidth::Px1, &[(10.5, 20.5)]),
+            &crisp(),
+        );
         assert_eq!(img.pixel(10, 20), Some(RED));
         assert_eq!(alpha(&img, 11, 20), 0);
         assert_eq!(alpha(&img, 10, 21), 0);
@@ -207,7 +249,7 @@ mod tests {
             // Odd widths are centered on a pixel center, even widths on a pixel edge.
             let y = if width.px() % 2 == 1 { 50.5 } else { 50.0 };
             let mut img = canvas();
-            render_op(&mut img, &stroke(width, &[(5.0, y), (95.0, y)]), AA);
+            render_op(&mut img, &stroke(width, &[(5.0, y), (95.0, y)]), &aa());
             assert_eq!(opaque_rows(&img, 50), width.px(), "width {width:?}");
         }
     }
@@ -218,7 +260,7 @@ mod tests {
         render_op(
             &mut img,
             &stroke(StrokeWidth::Px2, &[(10.0, 10.0), (90.0, 90.0)]),
-            AA,
+            &aa(),
         );
         assert_eq!(img.pixel(10, 10), Some(RED));
         assert_eq!(img.pixel(50, 50), Some(RED));
@@ -229,16 +271,16 @@ mod tests {
     #[test]
     fn antialiasing_produces_partial_alpha_on_edges() {
         let mut img = canvas();
-        render_op(&mut img, &stroke(StrokeWidth::Px8, &[(50.3, 50.3)]), AA);
+        render_op(&mut img, &stroke(StrokeWidth::Px8, &[(50.3, 50.3)]), &aa());
         let edge = alpha(&img, 54, 50);
         assert!(edge > 0 && edge < 255, "edge alpha {edge}");
-        let mut crisp = canvas();
+        let mut sharp = canvas();
         render_op(
-            &mut crisp,
+            &mut sharp,
             &stroke(StrokeWidth::Px8, &[(50.3, 50.3)]),
-            CRISP,
+            &crisp(),
         );
-        assert!(crisp.pixels().chunks(4).all(|p| p[3] == 0 || p[3] == 255));
+        assert!(sharp.pixels().chunks(4).all(|p| p[3] == 0 || p[3] == 255));
     }
 
     #[test]
@@ -249,7 +291,7 @@ mod tests {
             width: StrokeWidth::Px4,
             points: vec![Point::new(20.0, 20.0)],
         };
-        render_op(&mut img, &op, AA);
+        render_op(&mut img, &op, &aa());
         assert_eq!(img.pixel(20, 20), Some(Color::rgb(1, 2, 3)));
     }
 
@@ -260,7 +302,7 @@ mod tests {
             width: StrokeWidth::Px16,
             points: vec![Point::new(10.0, 50.0), Point::new(90.0, 50.0)],
         };
-        render_op(&mut img, &op, AA);
+        render_op(&mut img, &op, &aa());
         assert_eq!(img.pixel(50, 50), Some(Color::TRANSPARENT));
         assert_eq!(img.pixel(50, 43), Some(Color::TRANSPARENT));
         assert_eq!(img.pixel(50, 20), Some(RED));
@@ -275,7 +317,7 @@ mod tests {
             &DrawOp::ClearRect {
                 rect: PixelRect::new(2, 3, 4, 5),
             },
-            AA,
+            &aa(),
         );
         assert_eq!(dirty, PixelRect::new(2, 3, 4, 5));
         assert_eq!(img.pixel(2, 3), Some(Color::TRANSPARENT));
@@ -290,19 +332,27 @@ mod tests {
         let dirty = render_op(
             &mut img,
             &stroke(StrokeWidth::Px32, &[(-500.0, -500.0), (1e6, 50.0)]),
-            AA,
+            &aa(),
         );
         assert!(dirty.right() <= 100 && dirty.bottom() <= 100);
-        let nothing = render_op(&mut img, &stroke(StrokeWidth::Px4, &[(f32::NAN, 1.0)]), AA);
+        let nothing = render_op(
+            &mut img,
+            &stroke(StrokeWidth::Px4, &[(f32::NAN, 1.0)]),
+            &aa(),
+        );
         assert!(nothing.is_empty());
-        let outside = render_op(&mut img, &stroke(StrokeWidth::Px4, &[(500.0, 500.0)]), AA);
+        let outside = render_op(
+            &mut img,
+            &stroke(StrokeWidth::Px4, &[(500.0, 500.0)]),
+            &aa(),
+        );
         assert!(outside.is_empty());
     }
 
     #[test]
     fn bounds_cover_brush_radius() {
         let size = CanvasSize::new(100, 100).unwrap();
-        let b = op_bounds(&stroke(StrokeWidth::Px16, &[(50.0, 50.0)]), size);
+        let b = op_bounds(&stroke(StrokeWidth::Px16, &[(50.0, 50.0)]), size, &aa());
         assert!(b.contains(42, 42) && b.contains(57, 57));
     }
 }

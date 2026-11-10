@@ -65,6 +65,44 @@ pub trait ImageImporter: fmt::Debug {
     fn import(&self, path: &Path) -> Result<RasterImage, PersistenceError>;
 }
 
+/// Binary data of one font face (TrueType / OpenType, possibly a collection).
+#[derive(Clone, PartialEq, Eq)]
+pub struct FontData {
+    pub bytes: std::sync::Arc<[u8]>,
+    /// Face index inside a font collection (`.ttc`), 0 otherwise.
+    pub index: u32,
+}
+
+impl fmt::Debug for FontData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FontData")
+            .field("len", &self.bytes.len())
+            .field("index", &self.index)
+            .finish()
+    }
+}
+
+/// Installed fonts available for text drawing.
+pub trait FontSource: fmt::Debug + Send + Sync {
+    /// Family names of the installed scalable fonts, sorted.
+    fn family_names(&self) -> Vec<String>;
+    /// Regular face of `family`, `None` if not installed.
+    fn load(&self, family: &str) -> Option<FontData>;
+}
+
+/// A [`FontSource`] without fonts (text is not rendered).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoFonts;
+
+impl FontSource for NoFonts {
+    fn family_names(&self) -> Vec<String> {
+        Vec::new()
+    }
+    fn load(&self, _family: &str) -> Option<FontData> {
+        None
+    }
+}
+
 /// Writes images to disk.
 pub trait ImageExporter: fmt::Debug {
     /// Writes `image` as PNG (alpha channel preserved).

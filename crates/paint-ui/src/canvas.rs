@@ -221,7 +221,7 @@ impl CanvasView {
     }
 }
 
-fn to_color_image(image: &RasterImage) -> ColorImage {
+pub(crate) fn to_color_image(image: &RasterImage) -> ColorImage {
     ColorImage::from_rgba_unmultiplied(
         [image.width() as usize, image.height() as usize],
         image.pixels(),
