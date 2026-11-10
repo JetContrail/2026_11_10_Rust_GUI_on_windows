@@ -133,6 +133,7 @@ impl ToolController {
                 self.gesture = Gesture::Selecting { anchor: p };
                 events.extend(self.set_selection(None));
             }
+            ToolKind::Text => {}
         }
         events
     }
@@ -238,7 +239,7 @@ impl ToolController {
                 width: self.settings.eraser_width,
                 points,
             },
-            ToolKind::Select => return None,
+            ToolKind::Select | ToolKind::Text => return None,
         })
     }
 }

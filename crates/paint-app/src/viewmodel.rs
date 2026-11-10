@@ -6,9 +6,9 @@ use std::sync::Arc;
 use paint_domain::ports::PersistenceError;
 use paint_domain::{
     CanvasSize, Color, DEFAULT_HISTORY_LIMIT, Document, DomainError, DrawOp, EditCommand, History,
-    LayerContent, LayerId, PixelRect, Point, StrokeWidth, Underlay,
+    LayerContent, LayerId, PixelRect, Point, StrokeWidth, TextSize, Underlay,
 };
-use paint_engine::{LayerCache, RenderOptions, compose_visible};
+use paint_engine::{FontLibrary, LayerCache, RenderOptions, compose_visible};
 use paint_tools::{ToolController, ToolEvent, ToolKind, ToolSettings};
 
 use crate::Services;
@@ -52,6 +52,17 @@ pub enum ExportMode {
     DrawingOnly,
 }
 
+/// Font family selected by default when installed.
+pub const DEFAULT_FONT: &str = "Yu Gothic UI";
+
+/// Text being typed with the text tool (not yet committed).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextDraft {
+    /// Top-left corner of the text in canvas coordinates.
+    pub origin: Point,
+    pub text: String,
+}
+
 /// The ViewModel of the main window.
 #[derive(Debug)]
 pub struct PaintViewModel {
@@ -69,6 +80,9 @@ pub struct PaintViewModel {
     next_state: u64,
     saved_state: u64,
     project_path: Option<PathBuf>,
+    text_draft: Option<TextDraft>,
+    text_font: String,
+    text_size: TextSize,
 }
 
 impl PaintViewModel {
@@ -77,12 +91,16 @@ impl PaintViewModel {
     }
 
     pub fn with_document(services: Services, document: Document) -> Self {
+        let render_options = RenderOptions {
+            fonts: FontLibrary::new(Arc::clone(&services.fonts)),
+            ..RenderOptions::default()
+        };
         let mut vm = Self {
             services,
             document,
             history: History::new(DEFAULT_HISTORY_LIMIT),
             tools: ToolController::default(),
-            render_options: RenderOptions::default(),
+            render_options,
             caches: BTreeMap::new(),
             underlay_revision: 0,
             undo_states: Vec::new(),
@@ -90,6 +108,9 @@ impl PaintViewModel {
             next_state: 1,
             saved_state: 0,
             project_path: None,
+            text_draft: None,
+            text_font: DEFAULT_FONT.to_owned(),
+            text_size: TextSize::default(),
         };
         vm.rebuild_all_caches();
         vm
@@ -164,6 +185,8 @@ impl PaintViewModel {
     // ----- tool settings -----
 
     pub fn select_tool(&mut self, tool: ToolKind) {
+        // Leaving the text tool keeps what was typed.
+        let _ = self.commit_text();
         let events = self.tools.set_tool(tool);
         // Switching tools only cancels previews; it never commits.
         let _ = self.apply_tool_events(events);
@@ -171,6 +194,7 @@ impl PaintViewModel {
 
     pub fn set_color(&mut self, color: Color) {
         self.tools.settings_mut().color = color;
+        self.refresh_text_preview();
     }
 
     pub fn set_pen_width(&mut self, width: StrokeWidth) {
@@ -181,6 +205,93 @@ impl PaintViewModel {
         self.tools.settings_mut().eraser_width = width;
     }
 
+    // ----- text tool -----
+
+    /// Installed font families for the font selection UI.
+    pub fn font_families(&self) -> Vec<String> {
+        self.render_options.fonts.family_names()
+    }
+
+    pub fn text_font(&self) -> &str {
+        &self.text_font
+    }
+
+    pub fn set_text_font(&mut self, family: &str) {
+        family.clone_into(&mut self.text_font);
+        self.refresh_text_preview();
+    }
+
+    pub fn text_size(&self) -> TextSize {
+        self.text_size
+    }
+
+    pub fn set_text_size(&mut self, size: TextSize) {
+        self.text_size = size;
+        self.refresh_text_preview();
+    }
+
+    /// Render options (fonts) shared with previews in the view.
+    pub fn render_options(&self) -> &RenderOptions {
+        &self.render_options
+    }
+
+    pub fn text_draft(&self) -> Option<&TextDraft> {
+        self.text_draft.as_ref()
+    }
+
+    /// Replaces the text being typed (preview only, not undoable yet).
+    pub fn set_text_draft(&mut self, text: &str) {
+        if let Some(draft) = &mut self.text_draft {
+            text.clone_into(&mut draft.text);
+            self.refresh_text_preview();
+        }
+    }
+
+    /// Commits the text being typed as one undoable operation. Empty text
+    /// is discarded. Returns whether a draft was active.
+    pub fn commit_text(&mut self) -> Result<bool, AppError> {
+        let Some(op) = self.text_op() else {
+            return Ok(self.cancel_text());
+        };
+        self.text_draft = None;
+        self.commit(Document::DRAWING_LAYER, op)?;
+        Ok(true)
+    }
+
+    /// Discards the text being typed. Returns whether a draft was active.
+    pub fn cancel_text(&mut self) -> bool {
+        let active = self.text_draft.take().is_some();
+        if active && let Some(cache) = self.caches.get_mut(&Document::DRAWING_LAYER) {
+            cache.clear_preview();
+        }
+        active
+    }
+
+    fn text_op(&self) -> Option<DrawOp> {
+        let draft = self.text_draft.as_ref()?;
+        let op = DrawOp::Text {
+            text: draft.text.clone(),
+            origin: draft.origin,
+            size: self.text_size,
+            color: self.tools.settings().color,
+            font: self.text_font.clone(),
+        };
+        op.is_valid().then_some(op)
+    }
+
+    fn refresh_text_preview(&mut self) {
+        if self.text_draft.is_none() {
+            return;
+        }
+        let op = self.text_op();
+        if let Some(cache) = self.caches.get_mut(&Document::DRAWING_LAYER) {
+            match op {
+                Some(op) => cache.set_preview(&op),
+                None => cache.clear_preview(),
+            }
+        }
+    }
+
     // ----- pointer / keyboard input (canvas coordinates) -----
 
     /// Shift modifier state (straight-line segment while drawing).
@@ -189,6 +300,17 @@ impl PaintViewModel {
     }
 
     pub fn pointer_pressed(&mut self, p: Point) -> Result<(), AppError> {
+        if self.tools.tool() == ToolKind::Text {
+            // A click outside an open text box commits it; otherwise it
+            // opens a new text box at `p`.
+            if !self.commit_text()? && p.is_finite() {
+                self.text_draft = Some(TextDraft {
+                    origin: p,
+                    text: String::new(),
+                });
+            }
+            return Ok(());
+        }
         let events = self.tools.press(p, self.canvas());
         self.apply_tool_events(events)
     }
@@ -203,7 +325,9 @@ impl PaintViewModel {
         self.apply_tool_events(events)
     }
 
+    /// Cancels the pointer gesture and any text being typed.
     pub fn cancel_gesture(&mut self) {
+        self.cancel_text();
         let events = self.tools.cancel();
         let _ = self.apply_tool_events(events);
     }
@@ -323,7 +447,7 @@ impl PaintViewModel {
 
     /// The image [`Self::export_png`] would write.
     pub fn render_export(&self, mode: ExportMode) -> paint_domain::RasterImage {
-        compose_visible(&self.document, self.render_options, |layer| match mode {
+        compose_visible(&self.document, &self.render_options, |layer| match mode {
             ExportMode::VisibleLayers => true,
             ExportMode::DrawingOnly => matches!(layer.content, LayerContent::Vector(_)),
         })
@@ -387,14 +511,14 @@ impl PaintViewModel {
 
     fn rebuild_all_caches(&mut self) {
         let canvas = self.document.canvas();
-        let options = self.render_options;
+        let options = self.render_options.clone();
         self.caches = self
             .document
             .layers()
             .iter()
             .filter_map(|layer| {
                 let ops = layer.ops()?;
-                let mut cache = LayerCache::new(canvas, options);
+                let mut cache = LayerCache::new(canvas, options.clone());
                 cache.rebuild(canvas, ops);
                 Some((layer.id, cache))
             })
@@ -481,6 +605,7 @@ mod tests {
             project_store: Box::new(fake.clone()),
             image_importer: Box::new(fake.clone()),
             image_exporter: Box::new(fake.clone()),
+            fonts: Arc::new(paint_domain::ports::NoFonts),
         };
         let mut vm = PaintViewModel::with_document(services, Document::new(CANVAS));
         vm.set_color(RED);
@@ -740,5 +865,81 @@ mod tests {
                 .to_string()
                 .is_empty()
         );
+    }
+
+    fn text_ops(vm: &PaintViewModel) -> Vec<DrawOp> {
+        vm.document()
+            .ops(Document::DRAWING_LAYER)
+            .unwrap()
+            .iter()
+            .filter(|op| matches!(op, DrawOp::Text { .. }))
+            .cloned()
+            .collect()
+    }
+
+    #[test]
+    fn text_tool_click_type_commit_is_one_undo_step() {
+        let (mut vm, _) = vm();
+        vm.select_tool(ToolKind::Text);
+        vm.set_text_font("Some Font");
+        vm.set_text_size(TextSize::new(123).unwrap());
+        vm.pointer_pressed(Point::new(5.0, 6.0)).unwrap();
+        vm.pointer_released(Point::new(5.0, 6.0)).unwrap();
+        let draft = vm.text_draft().unwrap();
+        assert_eq!(draft.origin, Point::new(5.0, 6.0));
+        vm.set_text_draft("日本語\nEnglish");
+        assert_eq!(vm.undo_len(), 0, "typing is not undoable yet");
+        assert!(vm.commit_text().unwrap());
+        assert!(vm.text_draft().is_none());
+        assert_eq!(vm.undo_len(), 1);
+        assert_eq!(
+            text_ops(&vm),
+            [DrawOp::Text {
+                text: "日本語\nEnglish".to_owned(),
+                origin: Point::new(5.0, 6.0),
+                size: TextSize::new(123).unwrap(),
+                color: RED,
+                font: "Some Font".to_owned(),
+            }]
+        );
+        assert!(vm.undo().unwrap());
+        assert!(text_ops(&vm).is_empty());
+        assert!(vm.redo().unwrap());
+        assert_eq!(text_ops(&vm).len(), 1);
+    }
+
+    #[test]
+    fn click_outside_commits_and_cancel_or_empty_text_discards() {
+        let (mut vm, _) = vm();
+        vm.select_tool(ToolKind::Text);
+        vm.pointer_pressed(Point::new(1.0, 1.0)).unwrap();
+        vm.set_text_draft("a");
+        // Click elsewhere commits instead of opening a new box.
+        vm.pointer_pressed(Point::new(30.0, 30.0)).unwrap();
+        assert!(vm.text_draft().is_none());
+        assert_eq!(vm.undo_len(), 1);
+
+        vm.pointer_pressed(Point::new(30.0, 30.0)).unwrap();
+        vm.set_text_draft("cancelled");
+        assert!(vm.cancel_text());
+        assert!(vm.text_draft().is_none());
+
+        vm.pointer_pressed(Point::new(30.0, 30.0)).unwrap();
+        assert!(vm.commit_text().unwrap(), "empty draft was active");
+        assert_eq!(vm.undo_len(), 1, "empty text is not committed");
+
+        vm.pointer_pressed(Point::new(2.0, 2.0)).unwrap();
+        vm.set_text_draft("kept");
+        vm.select_tool(ToolKind::Pen);
+        assert_eq!(vm.undo_len(), 2, "switching tools commits");
+        assert!(!vm.cancel_text());
+    }
+
+    #[test]
+    fn font_families_come_from_the_font_source() {
+        let (vm, _) = vm();
+        assert!(vm.font_families().is_empty());
+        assert_eq!(vm.text_font(), DEFAULT_FONT);
+        assert_eq!(vm.text_size(), TextSize::default());
     }
 }

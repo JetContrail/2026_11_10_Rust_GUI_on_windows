@@ -41,7 +41,7 @@ impl LayerCache {
         self.raster = RasterImage::transparent(canvas);
         self.preview_backup = None;
         for op in ops {
-            render_op(&mut self.raster, op, self.options);
+            render_op(&mut self.raster, op, &self.options);
         }
         self.dirty = Some(PixelRect::new(0, 0, canvas.width, canvas.height));
     }
@@ -49,19 +49,19 @@ impl LayerCache {
     /// Renders a committed operation (removes any preview first).
     pub fn commit(&mut self, op: &DrawOp) {
         self.clear_preview();
-        let rect = render_op(&mut self.raster, op, self.options);
+        let rect = render_op(&mut self.raster, op, &self.options);
         self.mark_dirty(rect);
     }
 
     /// Shows `op` as the in-progress preview, replacing the previous one.
     pub fn set_preview(&mut self, op: &DrawOp) {
         self.clear_preview();
-        let rect = op_bounds(op, self.raster.size());
+        let rect = op_bounds(op, self.raster.size(), &self.options);
         if rect.is_empty() {
             return;
         }
         self.preview_backup = Some((rect, extract_region(&self.raster, rect)));
-        render_op(&mut self.raster, op, self.options);
+        render_op(&mut self.raster, op, &self.options);
         self.mark_dirty(rect);
     }
 

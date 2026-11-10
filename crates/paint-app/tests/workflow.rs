@@ -17,6 +17,7 @@ fn new_vm() -> PaintViewModel {
         project_store: Box::new(JsonProjectStore),
         image_importer: Box::new(FileImageImporter),
         image_exporter: Box::new(PngExporter),
+        fonts: std::sync::Arc::new(paint_domain::ports::NoFonts),
     })
 }
 
@@ -144,4 +145,34 @@ fn exporter_writes_transparent_png_readable_by_importer() {
     PngExporter.export_png(&path, &img).unwrap();
     assert_eq!(FileImageImporter.import(&path).unwrap(), img);
     assert!(Path::new(&path).exists());
+}
+
+#[test]
+fn text_is_saved_and_reloaded() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("text.paint");
+    let mut vm = new_vm();
+    vm.select_tool(ToolKind::Text);
+    vm.set_color(BLUE);
+    vm.set_text_size(paint_domain::TextSize::new(57).unwrap());
+    vm.set_text_font("Meiryo");
+    vm.pointer_pressed(Point::new(10.0, 20.0)).unwrap();
+    vm.set_text_draft("こんにちは\nHello Ωμέγα Привет 你好 안녕");
+    vm.commit_text().unwrap();
+    vm.save_project_as(&path).unwrap();
+    let before = vm
+        .document()
+        .ops(paint_domain::Document::DRAWING_LAYER)
+        .unwrap()
+        .to_vec();
+
+    let mut reloaded = new_vm();
+    reloaded.open_project(&path).unwrap();
+    assert_eq!(
+        reloaded
+            .document()
+            .ops(paint_domain::Document::DRAWING_LAYER)
+            .unwrap(),
+        before.as_slice()
+    );
 }

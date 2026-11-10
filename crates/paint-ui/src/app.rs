@@ -5,6 +5,7 @@ use paint_tools::ToolKind;
 
 use crate::FileDialogs;
 use crate::canvas::CanvasView;
+use crate::text_ui::{FontPicker, TextInput, text_settings};
 
 pub const APP_TITLE: &str = "Rust Paint";
 
@@ -38,6 +39,8 @@ pub struct PaintApp {
     title: String,
     confirm: Option<PendingAction>,
     allow_close: bool,
+    text_input: TextInput,
+    font_picker: Option<FontPicker>,
 }
 
 impl PaintApp {
@@ -50,6 +53,8 @@ impl PaintApp {
             title: String::new(),
             confirm: None,
             allow_close: false,
+            text_input: TextInput::default(),
+            font_picker: None,
         }
     }
 
@@ -98,6 +103,14 @@ impl PaintApp {
                 self.message = e;
             }
         });
+        if let Err(e) = self.text_input.show(ui.ctx(), &mut self.vm, &self.canvas) {
+            self.message = e;
+        }
+        if let Some(picker) = &mut self.font_picker
+            && !picker.show(ui.ctx(), &mut self.vm)
+        {
+            self.font_picker = None;
+        }
     }
 
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {
@@ -129,7 +142,7 @@ impl PaintApp {
         if delete {
             self.delete_selection();
         }
-        if esc {
+        if esc && !self.vm.cancel_text() {
             self.vm.clear_selection();
         }
     }
@@ -275,6 +288,12 @@ impl PaintApp {
                 .clicked()
             {
                 self.vm.select_tool(tool);
+            }
+        }
+        if self.vm.tool() == ToolKind::Text {
+            ui.separator();
+            if text_settings(ui, &mut self.vm) {
+                self.font_picker = Some(FontPicker::new(&self.vm));
             }
         }
         let settings = self.vm.tool_settings();
@@ -460,6 +479,7 @@ fn tool_name(tool: ToolKind) -> &'static str {
         ToolKind::Line => "直線",
         ToolKind::Eraser => "消しゴム",
         ToolKind::Select => "範囲選択",
+        ToolKind::Text => "テキスト",
     }
 }
 

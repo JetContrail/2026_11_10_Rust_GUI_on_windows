@@ -9,8 +9,10 @@ mod cache;
 mod compose;
 mod raster;
 mod region;
+mod text;
 
 pub use cache::LayerCache;
 pub use compose::{compose_visible, render_vector_layer};
 pub use raster::{RenderOptions, op_bounds, render_op};
 pub use region::{copy_region, extract_region};
+pub use text::{FALLBACK_FAMILIES, FontLibrary};

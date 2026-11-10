@@ -5,6 +5,7 @@ mod app;
 mod canvas;
 mod dialogs;
 mod fonts;
+mod text_ui;
 
 pub use app::{APP_TITLE, PaintApp};
 pub use dialogs::{FileDialogs, NativeDialogs};
@@ -17,5 +18,6 @@ pub fn default_view_model() -> paint_app::PaintViewModel {
         project_store: Box::new(paint_persistence::JsonProjectStore),
         image_importer: Box::new(paint_persistence::FileImageImporter),
         image_exporter: Box::new(paint_persistence::PngExporter),
+        fonts: std::sync::Arc::new(paint_persistence::SystemFontSource::new()),
     })
 }

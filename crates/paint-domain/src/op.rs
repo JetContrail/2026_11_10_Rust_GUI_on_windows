@@ -1,4 +1,4 @@
-use crate::{Color, PixelRect, Point, StrokeWidth};
+use crate::{Color, PixelRect, Point, StrokeWidth, TextSize};
 
 /// A single drawing operation applied to a vector (drawing) layer.
 ///
@@ -19,6 +19,16 @@ pub enum DrawOp {
     },
     /// Range erase: makes the rectangle transparent.
     ClearRect { rect: PixelRect },
+    /// Text drawn with its top-left corner at `origin`. Lines are separated
+    /// by `\n`. `font` is a font family name resolved at render time;
+    /// characters it lacks are drawn with fallback fonts.
+    Text {
+        text: String,
+        origin: Point,
+        size: TextSize,
+        color: Color,
+        font: String,
+    },
 }
 
 impl DrawOp {
@@ -26,7 +36,7 @@ impl DrawOp {
     pub fn points(&self) -> &[Point] {
         match self {
             Self::Stroke { points, .. } | Self::Erase { points, .. } => points,
-            Self::ClearRect { .. } => &[],
+            Self::ClearRect { .. } | Self::Text { .. } => &[],
         }
     }
 
@@ -37,6 +47,7 @@ impl DrawOp {
                 !points.is_empty() && points.iter().all(|p| p.is_finite())
             }
             Self::ClearRect { .. } => true,
+            Self::Text { text, origin, .. } => !text.is_empty() && origin.is_finite(),
         }
     }
 }
@@ -74,5 +85,20 @@ mod tests {
             rect: PixelRect::new(0, 0, 1, 1),
         };
         assert!(clear.points().is_empty());
+    }
+
+    #[test]
+    fn text_validity() {
+        let text = |t: &str, x: f32| DrawOp::Text {
+            text: t.to_owned(),
+            origin: Point::new(x, 0.0),
+            size: crate::TextSize::default(),
+            color: Color::BLACK,
+            font: "Yu Gothic UI".to_owned(),
+        };
+        assert!(text("こんにちは\nHello", 1.0).is_valid());
+        assert!(!text("", 1.0).is_valid());
+        assert!(!text("a", f32::NAN).is_valid());
+        assert!(text("a", 1.0).points().is_empty());
     }
 }

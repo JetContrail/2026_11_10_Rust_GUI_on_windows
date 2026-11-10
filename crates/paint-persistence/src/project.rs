@@ -12,7 +12,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use paint_domain::ports::{PersistenceError, ProjectStore};
 use paint_domain::{
     CanvasSize, Color, Document, DrawOp, Layer, LayerContent, LayerId, PixelRect, Point,
-    StrokeWidth,
+    StrokeWidth, TextSize,
 };
 use serde::{Deserialize, Serialize};
 
@@ -78,6 +78,13 @@ enum OpDto {
         y: u32,
         width: u32,
         height: u32,
+    },
+    Text {
+        text: String,
+        origin: [f32; 2],
+        size: u16,
+        color: [u8; 4],
+        font: String,
     },
 }
 
@@ -196,6 +203,19 @@ fn op_to_dto(op: &DrawOp) -> OpDto {
             width: rect.width,
             height: rect.height,
         },
+        DrawOp::Text {
+            text,
+            origin,
+            size,
+            color,
+            font,
+        } => OpDto::Text {
+            text: text.clone(),
+            origin: [origin.x, origin.y],
+            size: size.px(),
+            color: color.to_array(),
+            font: font.clone(),
+        },
     }
 }
 
@@ -249,6 +269,29 @@ fn op_from_dto(dto: OpDto, canvas: CanvasSize) -> Result<DrawOp, PersistenceErro
                 ));
             }
             DrawOp::ClearRect { rect }
+        }
+        OpDto::Text {
+            text,
+            origin: [x, y],
+            size,
+            color,
+            font,
+        } => {
+            let origin = Point::new(x, y);
+            if text.is_empty() || !origin.is_finite() {
+                return Err(PersistenceError::InvalidFormat(
+                    "テキスト操作が不正です".to_owned(),
+                ));
+            }
+            DrawOp::Text {
+                text,
+                origin,
+                size: TextSize::new(size).ok_or_else(|| {
+                    PersistenceError::InvalidFormat(format!("未対応の文字サイズ {size}px"))
+                })?,
+                color: Color::from_array(color),
+                font,
+            }
         }
     })
 }
@@ -310,6 +353,17 @@ mod tests {
             layer,
             DrawOp::ClearRect {
                 rect: PixelRect::new(0, 0, 10, 5),
+            },
+        )
+        .unwrap();
+        doc.push_op(
+            layer,
+            DrawOp::Text {
+                text: "日本語\nEnglish".to_owned(),
+                origin: Point::new(4.5, 6.0),
+                size: TextSize::new(123).unwrap(),
+                color: Color::rgba(1, 2, 3, 200),
+                font: "游ゴシック".to_owned(),
             },
         )
         .unwrap();
@@ -378,7 +432,7 @@ mod tests {
 
     #[test]
     fn rejects_invalid_contents() {
-        let cases: [(&str, serde_json::Value); 7] = [
+        let cases: [(&str, serde_json::Value); 10] = [
             ("/canvas/width", 0.into()),
             ("/canvas/width", 5000.into()),
             ("/layers/1/content/ops/0/width", 3.into()),
@@ -386,6 +440,9 @@ mod tests {
             ("/layers/1/content/ops/2/width", 1000.into()),
             ("/layers/0/content/png_base64", "%%%".into()),
             ("/layers/1/id", 0.into()),
+            ("/layers/1/content/ops/3/size", 7.into()),
+            ("/layers/1/content/ops/3/size", 401.into()),
+            ("/layers/1/content/ops/3/text", "".into()),
         ];
         for (pointer, replacement) in cases {
             let mut value = json(&sample_document());

@@ -15,6 +15,7 @@ mod image;
 mod layer;
 mod op;
 pub mod ports;
+mod text;
 mod width;
 
 pub use canvas::CanvasSize;
@@ -26,4 +27,5 @@ pub use history::{DEFAULT_HISTORY_LIMIT, EditCommand, History};
 pub use image::RasterImage;
 pub use layer::{Layer, LayerContent, LayerId};
 pub use op::DrawOp;
+pub use text::TextSize;
 pub use width::StrokeWidth;

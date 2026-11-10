@@ -22,7 +22,8 @@
         "ops": [
           { "type": "stroke", "color": [255, 0, 0, 255], "width": 4, "points": [[10.5, 20.0], [30.0, 40.0]] },
           { "type": "erase", "width": 16, "points": [[12.0, 22.0]] },
-          { "type": "clear_rect", "x": 0, "y": 0, "width": 100, "height": 50 }
+          { "type": "clear_rect", "x": 0, "y": 0, "width": 100, "height": 50 },
+          { "type": "text", "text": "こんにちは\nHello", "origin": [40.0, 60.0], "size": 32, "color": [0, 0, 0, 255], "font": "Yu Gothic UI" }
         ]
       }
     }
@@ -40,5 +41,9 @@
 | `content.type = vector` | 描画内容。`ops` は描画順 |
 | `color` | RGBA 各 0-255 (色情報) |
 | `width` | 線幅 / 消しゴムサイズ (px) |
+| `text` | 文字列 (UTF-8、改行は `\n`)。空文字は不可 |
+| `origin` | テキストの左上座標 (px) |
+| `size` | 文字サイズ (px、8〜400) |
+| `font` | フォントファミリー名。読込先の PC に無い場合や、そのフォントに無い文字は代替フォントで描画する |
 
 読込時の検証: `format` / `version` の一致、キャンバスサイズの上限、下絵サイズとキャンバスサイズの整合、座標が有限値であること。不正な場合はエラーを返し、現在のドキュメントは変更しない。
