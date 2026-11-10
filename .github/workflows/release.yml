@@ -1,0 +1,68 @@
+name: Release
+
+# Pushing a tag "vX.Y.Z" (matching the workspace version) builds paint.exe on
+# Windows, runs the tests and smoke test, and publishes it to GitHub Releases.
+# Pull requests that change this file run everything except publishing.
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths: [".github/workflows/release.yml"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: Publish paint.exe (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Resolve version (tag must match Cargo.toml)
+        id: version
+        shell: pwsh
+        run: |
+          $version = "v" + (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          if ("${{ github.ref_type }}" -eq "tag" -and $version -ne "${{ github.ref_name }}") {
+            throw "tag ${{ github.ref_name }} does not match Cargo.toml version $version"
+          }
+          "tag=$version" >> $env:GITHUB_OUTPUT
+      - name: cargo test
+        run: cargo test --workspace --locked
+      - name: cargo build --release
+        run: cargo build --release --locked
+      - name: Release smoke test (startup <= 3 s, memory <= 500 MB)
+        shell: pwsh
+        run: ./scripts/smoke.ps1
+      - name: Package
+        id: package
+        shell: pwsh
+        run: |
+          $name = "paint-${{ steps.version.outputs.tag }}-windows-x64"
+          New-Item -ItemType Directory -Path $name | Out-Null
+          Copy-Item target/release/paint.exe, LICENSE, README.md, docs/UserManual.md -Destination $name
+          Compress-Archive -Path $name -DestinationPath "$name.zip"
+          (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower() + "  $name.zip" | Out-File "$name.zip.sha256" -Encoding ascii
+          "zip=$name.zip" >> $env:GITHUB_OUTPUT
+      - name: Upload package (pull request check)
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-package
+          path: paint-*.zip*
+          if-no-files-found: error
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" `
+            "${{ steps.package.outputs.zip }}" "${{ steps.package.outputs.zip }}.sha256" `
+            --title "Rust Paint ${{ github.ref_name }}" --generate-notes
