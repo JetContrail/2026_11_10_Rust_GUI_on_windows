@@ -1,0 +1,10 @@
+/target/
+**/*.rs.bk
+*.pdb
+/artifacts/
+# Test / E2E outputs
+**/tests/snapshots/*.diff.png
+**/tests/snapshots/*.new.png
+/tmp/
+.idea/
+.vscode/
