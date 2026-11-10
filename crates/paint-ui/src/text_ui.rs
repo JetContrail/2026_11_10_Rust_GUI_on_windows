@@ -1,12 +1,13 @@
 //! Text tool UI: on-canvas text input box, size input and font selection.
 
+use crate::i18n::tr;
 use eframe::egui::{self, Key, Modifiers, TextureHandle};
 use paint_app::PaintViewModel;
 use paint_domain::{CanvasSize, Color, DrawOp, Point, RasterImage, TextSize};
 
 use crate::canvas::{CanvasView, to_color_image};
 
-const PREVIEW_TEXT: &str = "Aa Bb あいう 漢字 123";
+const PREVIEW_TEXT: &str = tr().font_preview_sample;
 const PREVIEW_SIZE: CanvasSize = CanvasSize {
     width: 400,
     height: 64,
@@ -16,7 +17,7 @@ const PREVIEW_SIZE: CanvasSize = CanvasSize {
 /// Returns `true` when the font selection window should open.
 pub(crate) fn text_settings(ui: &mut egui::Ui, vm: &mut PaintViewModel) -> bool {
     ui.horizontal(|ui| {
-        let label = ui.label("文字サイズ");
+        let label = ui.label(tr().text_size);
         let mut px = vm.text_size().px();
         let response = ui
             .add(
@@ -39,8 +40,8 @@ pub(crate) fn text_settings(ui: &mut egui::Ui, vm: &mut PaintViewModel) -> bool 
             }
         }
     });
-    ui.label(format!("フォント: {}", vm.text_font()));
-    ui.button("フォント選択…").clicked()
+    ui.label(format!("{}: {}", tr().font_label, vm.text_font()));
+    ui.button(tr().choose_font).clicked()
 }
 
 /// The on-canvas text input box of the text tool.
@@ -94,7 +95,7 @@ impl TextInput {
                             .id(id)
                             .desired_rows(2)
                             .desired_width(260.0)
-                            .hint_text("文字を入力 (Ctrl+Enter: 確定 / Esc: 取消)"),
+                            .hint_text(tr().text_hint),
                     );
                     if self.focused_origin != Some(draft.origin) {
                         response.request_focus();
@@ -146,13 +147,13 @@ impl FontPicker {
     pub(crate) fn show(&mut self, ctx: &egui::Context, vm: &mut PaintViewModel) -> bool {
         let mut open = true;
         let mut close = false;
-        egui::Window::new("フォントの選択")
+        egui::Window::new(tr().font_window_title)
             .collapsible(false)
             .resizable(false)
             .open(&mut open)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    let label = ui.label("検索");
+                    let label = ui.label(tr().search);
                     ui.text_edit_singleline(&mut self.filter)
                         .labelled_by(label.id);
                 });
@@ -163,7 +164,7 @@ impl FontPicker {
                     .filter(|f| f.to_lowercase().contains(&needle))
                     .collect();
                 if self.families.is_empty() {
-                    ui.label("インストール済みのフォントが見つかりません");
+                    ui.label(tr().no_fonts);
                 }
                 let row = ui.spacing().interact_size.y;
                 egui::ScrollArea::vertical()
@@ -180,7 +181,7 @@ impl FontPicker {
                         }
                     });
                 ui.separator();
-                ui.label(format!("プレビュー: {}", self.selected));
+                ui.label(format!("{}: {}", tr().preview_label, self.selected));
                 let texture = self.preview_texture(ctx, vm);
                 ui.image((texture.id(), texture.size_vec2()));
                 ui.horizontal(|ui| {
@@ -188,7 +189,7 @@ impl FontPicker {
                         vm.set_text_font(&self.selected);
                         close = true;
                     }
-                    if ui.button("キャンセル").clicked() {
+                    if ui.button(tr().cancel).clicked() {
                         close = true;
                     }
                 });

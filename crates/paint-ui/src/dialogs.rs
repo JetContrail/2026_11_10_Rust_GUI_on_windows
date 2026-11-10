@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use std::fmt;
 use std::path::PathBuf;
 
@@ -16,25 +17,19 @@ pub struct NativeDialogs;
 impl FileDialogs for NativeDialogs {
     fn open_image(&self) -> Option<PathBuf> {
         rfd::FileDialog::new()
-            .add_filter("画像 (PNG / JPEG / BMP)", &["png", "jpg", "jpeg", "bmp"])
+            .add_filter(tr().filter_images, &["png", "jpg", "jpeg", "bmp"])
             .pick_file()
     }
 
     fn open_project(&self) -> Option<PathBuf> {
         rfd::FileDialog::new()
-            .add_filter(
-                "プロジェクト (*.paint)",
-                &[paint_persistence::PROJECT_EXTENSION],
-            )
+            .add_filter(tr().filter_project, &[paint_persistence::PROJECT_EXTENSION])
             .pick_file()
     }
 
     fn save_project(&self) -> Option<PathBuf> {
         rfd::FileDialog::new()
-            .add_filter(
-                "プロジェクト (*.paint)",
-                &[paint_persistence::PROJECT_EXTENSION],
-            )
+            .add_filter(tr().filter_project, &[paint_persistence::PROJECT_EXTENSION])
             .set_file_name("untitled.paint")
             .save_file()
             .map(|p| with_extension(p, paint_persistence::PROJECT_EXTENSION))
@@ -42,7 +37,7 @@ impl FileDialogs for NativeDialogs {
 
     fn export_png(&self) -> Option<PathBuf> {
         rfd::FileDialog::new()
-            .add_filter("PNG 画像", &["png"])
+            .add_filter(tr().filter_png, &["png"])
             .set_file_name("image.png")
             .save_file()
             .map(|p| with_extension(p, "png"))
