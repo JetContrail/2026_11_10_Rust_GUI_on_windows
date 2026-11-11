@@ -15,6 +15,12 @@ Windows 10 / 11 (64bit) 向けのお絵描きソフトです。Rust + [egui / ef
 
 操作方法は [docs/UserManual.md](docs/UserManual.md) を参照してください。
 
+## ダウンロード
+
+ビルド済みの実行ファイルは [Releases](https://github.com/JetContrail/2026_11_10_Rust_GUI_on_windows/releases) からダウンロードできます。`paint-vX.Y.Z-windows-x64.zip` を展開し、`paint.exe` を実行してください (インストール不要、Windows 10 / 11 64bit)。コード署名をしていないため、初回起動時に SmartScreen の警告が出た場合は「詳細情報」→「実行」を選んでください。
+
+リリース手順 (開発者向け): `Cargo.toml` の `version` を更新した PR をマージし、`git tag vX.Y.Z && git push origin vX.Y.Z` を実行すると、`.github/workflows/release.yml` がテスト・スモークテスト後に Releases へ公開します。
+
 ## ビルド方法
 
 必要なもの: [Rust](https://rustup.rs/) stable (1.95 以上)。Windows では Visual Studio Build Tools (C++ によるデスクトップ開発) も必要です。
